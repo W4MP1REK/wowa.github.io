@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikacja Kuriera</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Kurier">
+
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1e293b">
+    
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <!-- Biblioteka jsPDF i AutoTable do generowania PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+    <!-- Modal logowania -->
+    <div id="auth-modal" class="modal">
+        <div class="modal-content">
+            <h2>Podaj PIN</h2>
+            <form id="login-form">
+                <input type="password" id="pin-input" placeholder="Wpisz PIN" required autofocus>
+                <button type="submit">Zaloguj</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Główna zawartość -->
+    <div id="app-content" style="display: none;">
+        <header>
+            <h1>Panel Kuriera</h1>
+            <nav class="nav-tabs">
+                <button class="nav-btn active" data-tab="tab-main">Dzień & Kalendarz</button>
+                <button class="nav-btn" data-tab="tab-stats">Statystyki</button>
+                <button class="nav-btn" data-tab="tab-records">Rekordy & Odznaki</button>
+                <button class="nav-btn" data-tab="tab-settings">Ustawienia</button>
+            </nav>
+            <button id="logout-btn" class="logout-btn">Wyloguj</button>
+        </header>
+
+        <main class="container">
+
+            <!-- ZAKŁADKA 1: MAIN (DZIEŃ & KALENDARZ) -->
+            <div id="tab-main" class="tab-content active">
+                <section class="card">
+                    <div class="calendar-header">
+                        <button id="prev-month">&lt;</button>
+                        <h2 id="calendar-month-year">Miesiąc Rok</h2>
+                        <button id="next-month">&gt;</button>
+                    </div>
+                    <div id="calendar-grid" class="calendar-grid"></div>
+
+                    <!-- Czytelna Legenda Oznaczeń -->
+                    <div class="calendar-legend">
+                        <div class="legend-item"><span class="legend-color low"></span> &lt; 200 paczek</div>
+                        <div class="legend-item"><span class="legend-color mid"></span> 200 - 300</div>
+                        <div class="legend-item"><span class="legend-color high"></span> 300+ paczek</div>
+                        <div class="legend-item"><span class="legend-tag sec">2Z</span> 2. zmiana</div>
+                        <div class="legend-item">📝 Notatka</div>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 id="selected-date-title">Wybrany dzień: --</h2>
+                        <button type="button" id="btn-today" class="btn-sec">Dzisiaj</button>
+                    </div>
+                    
+                    <form id="daily-form">
+                        <h3>Dodatki</h3>
+                        <div class="form-group">
+                            <label>Napiwki / Górka (zł):</label>
+                            <input type="number" id="tips" min="0" step="0.5" value="0">
+                        </div>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                        <h3>Pierwsza zmiana</h3>
+                        <div style="display: flex; gap: 10px;">
+                            <div class="form-group" style="flex: 1;">
+                                <label>Start 1. zmiany:</label>
+                                <div class="input-with-btn">
+                                    <input type="time" id="work-start">
+                                    <button type="button" class="btn-now" data-target="work-start">Teraz</button>
+                                </div>
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label>Koniec 1. zmiany:</label>
+                                <div class="input-with-btn">
+                                    <input type="time" id="work-end">
+                                    <button type="button" class="btn-now" data-target="work-end">Teraz</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Doręczenia Adres:</label>
+                            <input type="number" id="address" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Doręczenia APM / PUDO:</label>
+                            <input type="number" id="apm-pudo" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Awizo / Nieodebrane (odejmuje od adresu):</label>
+                            <input type="number" id="awizo" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Odbiory (Pickups):</label>
+                            <input type="number" id="pickups" min="0" value="0">
+                        </div>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                        <h3>Druga zmiana</h3>
+                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="second-shift">
+                            <label for="second-shift" style="cursor: pointer; color: var(--text-main); font-weight: 600;">Miałem drugą zmianę</label>
+                        </div>
+                        
+                        <div id="second-shift-details" style="display: none; padding-left: 10px; border-left: 3px solid #8b5cf6; margin-top: 10px;">
+                            <div style="display: flex; gap: 10px;">
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Start 2. zmiany:</label>
+                                    <div class="input-with-btn">
+                                        <input type="time" id="second-work-start">
+                                        <button type="button" class="btn-now" data-target="second-work-start">Teraz</button>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label>Koniec 2. zmiany:</label>
+
+                                    <div class="input-with-btn">
+                                        <input type="time" id="second-work-end">
+                                        <button type="button" class="btn-now" data-target="second-work-end">Teraz</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Doręczenia Adres (2. zmiana):</label>
+                                <input type="number" id="second-address" min="0" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Doręczenia APM / PUDO (2. zmiana):</label>
+                                <input type="number" id="second-apm-pudo" min="0" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Odbiory (2. zmiana):</label>
+                                <input type="number" id="second-pickups" min="0" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Stawka za 2. zmianę (zł):</label>
+                                <input type="number" id="second-shift-rate" min="0" step="0.01" value="180">
+                            </div>
+                        </div>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                        <h3>Notatka do dnia</h3>
+                        <div class="form-group">
+                            <textarea id="daily-note" placeholder="Wpisz notatkę (np. korki, awaria bazy, miły klient...)" rows="2"></textarea>
+                        </div>
+
+                        <div class="summary-box" style="margin-top: 20px;">
+                            <p>Czas pracy: <strong id="daily-hours">0h 0m</strong></p>
+                            <p>Łącznie paczek: <strong id="daily-total-parcels">0</strong></p>
+
+                            <p>Zarobek + Tipy: <strong id="daily-rate">0.00 zł</strong></p>
+                            <p>Tempo dnia: <strong id="daily-pace">0 paczek/h</strong></p>
+                            <p>Średnia stawkowa: <strong id="daily-hourly-rate">0.00 zł/h</strong></p>
+                        </div>
+
+                        <button type="submit" style="margin-top: 15px;">Zapisz dzień</button>
+                    </form>
+                </section>
+            </div>
+
+            <!-- ZAKŁADKA 2: STATYSTYKI MIESIĘCZNE -->
+            <div id="tab-stats" class="tab-content">
+                <section class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                        <h2>Statystyki Miesięczne</h2>
+                        <button id="export-pdf-btn" style="background-color: #10b981; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                            📄 Pobierz podsumowanie (PDF)
+                        </button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Wybierz miesiąc:</label>
+                        <select id="stats-month-select"></select>
+                    </div>
+
+                    <div style="margin: 15px 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                            <label>Cel miesięczny (zł):</label>
+                            <input type="number" id="monthly-goal-input" value="6000" style="width: 100px; padding: 4px; text-align: right;">
+                        </div>
+                        <div style="width: 100%; background: #334155; height: 20px; border-radius: 10px; overflow: hidden; position: relative;">
+                            <div id="progress-bar-fill" style="width: 0%; background: #10b981; height: 100%; transition: width 0.3s;"></div>
+                            <span id="progress-bar-text" style="position: absolute; width: 100%; text-align: center; top: 0; left: 0; line-height: 20px; font-size: 12px; font-weight: bold; color: #fff;">0%</span>
+                        </div>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-item highlight-box">
+                            <span>Prognoza wypłaty:</span>
+                            <strong id="stat-forecast" style="color: #60a5fa;">0.00 zł</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Zarobek (wyliczony):</span>
+                            <strong id="stat-monthly-earnings">0.00 zł</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Napiwki:</span>
+                            <strong id="stat-monthly-tips">0.00 zł</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Przepracowane dni:</span>
+                            <strong id="stat-monthly-days">0 dni</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Dni z 2. zmianą:</span>
+                            <strong id="stat-second-shift-days">0 dni</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Godziny w miesiącu:</span>
+                            <strong id="stat-monthly-hours">0h</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Średnie tempo:</span>
+                            <strong id="stat-monthly-pace">0 paczek/h</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Średnia stawkowa:</span>
+                            <strong id="stat-monthly-hourly-rate">0.00 zł/h</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Suma paczek:</span>
+                            <strong id="stat-monthly-parcels">0</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Adres:</span>
+                            <strong id="stat-address">0</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>APM / PUDO:</span>
+                            <strong id="stat-apm-pudo">0</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Awizo:</span>
+                            <strong id="stat-awizo">0</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Odbiory:</span>
+                            <strong id="stat-pickups">0</strong>
+                        </div>
+                    </div>
+
+                    <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                    <h3>Rozliczenie Przelewu</h3>
+                    <div class="form-group">
+                        <label>Wyliczona kwota (bez tipów):</label>
+                        <input type="text" id="calculated-payout" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Otrzymany przelew (zł):</label>
+                        <input type="number" id="received-payout" step="0.01" placeholder="Wpisz kwotę przelewu">
+                    </div>
+                    <div class="form-group">
+                        <label>Różnica w wypłacie:</label>
+                        <input type="text" id="payout-difference" readonly style="font-weight: bold;">
+                    </div>
+                    <button id="save-payout-btn">Zapisz przelew</button>
+                </section>
+            </div>
+
+            <!-- ZAKŁADKA 3: REKORDY & ODZNAKI -->
+            <div id="tab-records" class="tab-content">
+                <section class="card">
+                    <h2>Osobiste Rekordy</h2>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span>Najwięcej paczek w dzień:</span>
+                            <strong id="rec-max-parcels">0</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Najwyższy tip w dzień:</span>
+                            <strong id="rec-max-tip">0.00 zł</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Najwyższy zarobek w dzień:</span>
+                            <strong id="rec-max-earning">0.00 zł</strong>
+                        </div>
+                        <div class="stat-item">
+                            <span>Najlepsze tempo:</span>
+                            <strong id="rec-max-pace">0 paczek/h</strong>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card" style="margin-top: 20px;">
+                    <h2>Odznaki & Osiągnięcia</h2>
+                    <div id="badges-container" class="badges-grid"></div>
+                </section>
+            </div>
+
+            <!-- ZAKŁADKA 4: USTAWIENIA (KONFIGURACJA PROGÓW I PINU) -->
+            <div id="tab-settings" class="tab-content">
+                <section class="card">
+                    <h2>Edycja Progów i Stawek</h2>
+                    <form id="settings-form">
+                        <h3>1. Zmiana (Progi Paczek)</h3>
+                        <div class="form-group">
+                            <label>Próg 1 (np. do 199 paczek) - Stawka zł:</label>
+                            <input type="number" id="cfg-rate-tier1" value="240">
+                        </div>
+                        <div class="form-group">
+                            <label>Próg 2 - Wymagana liczba paczek (np. 200):</label>
+                            <input type="number" id="cfg-tier2-limit" value="200">
+                        </div>
+                        <div class="form-group">
+                            <label>Próg 2 (od limitu 2 do limitu 3) - Stawka zł:</label>
+                            <input type="number" id="cfg-rate-tier2" value="270">
+                        </div>
+                        <div class="form-group">
+                            <label>Próg 3 - Wymagana liczba paczek (np. 301):</label>
+                            <input type="number" id="cfg-tier3-limit" value="301">
+                        </div>
+                        <div class="form-group">
+                            <label>Próg 3 (od limitu 3 w górę) - Stawka zł:</label>
+                            <input type="number" id="cfg-rate-tier3" value="300">
+                        </div>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                        <h3>2. Zmiana (Domyślna stawka)</h3>
+                        <div class="form-group">
+                            <label>Domyślna stawka za 2. zmianę (zł):</label>
+                            <input type="number" id="cfg-default-sec-rate" value="180">
+                        </div>
+
+                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid var(--border-color);">
+
+                        <h3>Bezpieczeństwo</h3>
+
+                        <div class="form-group">
+                            <label>PIN do aplikacji:</label>
+                            <input type="password" id="cfg-pin" placeholder="Nowy PIN">
+                        </div>
+
+                        <button type="submit">Zapisz Ustawienia</button>
+                    </form>
+                </section>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+
+            navigator.serviceWorker.register('sw.js')
+                .then(() => console.log("Service Worker zarejestrowany!"))
+                .catch(err => console.log("Błąd SW:", err));
+        }
+    </script>
+</body>
+</html>
